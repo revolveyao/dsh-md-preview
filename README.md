@@ -30,8 +30,9 @@ DeepSeek Harness 的 Markdown 预览插件：记忆按钮旁边一个回形针�
 
 ```powershell
 # 必须在 DSH 完全退出时执行（会重建 profile 的 node_modules）
-dsh plugin --profile desktop add link:<本仓库路径>
-dsh plugin --profile web add link:<本仓库路径>   # 只在你也用 web profile 时才需要
+git clone https://github.com/revolveyao/dsh-md-preview.git C:\dsh-plugins\dsh-md-preview
+dsh plugin --profile desktop add link:C:\dsh-plugins\dsh-md-preview
+dsh plugin --profile web add link:C:\dsh-plugins\dsh-md-preview   # 只在你也用 web profile 时才需要
 ```
 
 装完重启 DSH。之后只改 client 半时，重新 `npm run build` + 刷新页面即可；改动 host 半或新增 bundle 需要重启。

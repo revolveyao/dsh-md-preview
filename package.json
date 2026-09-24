@@ -2,6 +2,14 @@
   "name": "dsh-md-preview",
   "version": "0.1.0",
   "description": "Markdown preview, workspace/skill file tree and editing for the DSH Web GUI: markdown-exit + Shiki with ColaMD themes.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/revolveyao/dsh-md-preview.git"
+  },
+  "bugs": {
+    "url": "https://github.com/revolveyao/dsh-md-preview/issues"
+  },
+  "homepage": "https://github.com/revolveyao/dsh-md-preview#readme",
   "type": "module",
   "main": "src/host/index.js",
   "exports": {
