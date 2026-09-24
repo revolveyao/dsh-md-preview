@@ -1,0 +1,1574 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  background: var(--bg-color);
+  color: var(--text-color);
+}
+
+:root {
+  /* Zero: the strip lives inside the 40px titlebar row, so the editor starts
+     right below it and nothing below needs a second offset. */
+  --tab-bar-height: 0px;
+  --editor-top-gap: 0px;
+}
+
+/* The room the panel's column takes out of the right-hand end of the row. Zero
+   when the panel is hidden, so one expression covers both states. */
+body.show-file-panel {
+  --panel-column: var(--file-panel-width, 220px);
+}
+
+body {
+  /* One chrome colour for the single top row. These MUST live on body, never
+     on :root: the themes override --bg-color/--text-color on body.theme-*, and
+     html never sees those overrides, so a :root definition bakes the light
+     theme's mix in and the titlebar stops following the theme entirely
+     (2026-09-15, found in the dark themes where the row stayed light grey and
+     the buttons vanished into it). Custom properties resolve where they are
+     DEFINED, not where they are used. */
+  --chrome-bg: color-mix(in srgb, var(--text-color) 6%, var(--bg-color));
+  /* Fully opaque, so the hovered tab and the close button that covers text use
+     one solid colour instead of stacking translucent layers. */
+  --chrome-bg-hover: color-mix(in srgb, var(--text-color) 6%, var(--chrome-bg));
+  /* Every seam in the shell: tab boundaries, the row's baseline, the panel's
+     edge. ONE opaque colour, not a translucent one: a translucent hairline is
+     resolved against whatever is underneath, so the same value came out as two
+     different lines where the surface changed — the panel's edge read lighter
+     below the row than in it, and looked like two lines meeting (2026-09-15). */
+  --shell-line: color-mix(in srgb, var(--text-color) 5%, var(--chrome-bg));
+  /* Every icon control in the row — the plus, the word count, the source
+     toggle, the file-panel toggle — reads at this one grey. They report nothing
+     by weight: no hover step, no lit on-state, no dimmed disabled step. */
+  --row-icon-color: color-mix(in srgb, var(--text-muted) 55%, transparent);
+  --search-match-bg: color-mix(in srgb, var(--link-color) 18%, transparent);
+  --search-match-current-bg: color-mix(in srgb, var(--link-color) 32%, transparent);
+}
+
+#titlebar {
+  /* The single top row. The strip, the save status and the three buttons are
+     all flex children of THIS element: one surface, one baseline, one stacking
+     order. (58f66f4 floated the strip above it with z-index 31; the broken
+     baseline, the wrong colour and the dead buttons all came from that split.)
+     Left padding clears the macOS traffic lights. */
+  -webkit-app-region: drag;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  /* The left of the row belongs to the document: the strip starts after the
+     traffic lights (they end at 68px; 16px of clearance read as crowded, 28px
+     sits right) and the file panel docks on the RIGHT, so the tabs never shift
+     when it opens. */
+  padding: 0 6px 0 96px;
+  background: var(--chrome-bg, transparent);
+  position: relative;
+  /* Tooltips inside the titlebar must paint above the editor. */
+  z-index: 30;
+}
+
+/* The clearance above belongs to the traffic lights. macOS hides them in full
+   screen and no other platform has them, so the strip starts on the window's own
+   left edge there instead of leaving 96px of empty chrome (2026-09-15). */
+body.fullscreen #titlebar,
+body.platform-non-mac #titlebar {
+  padding-left: 6px;
+}
+
+/* Windows paints its window controls inside this row (titleBarOverlay) instead of
+   in a title bar of its own, which is what turns three stacked bars into one row.
+   The controls are drawn over the web content, so the row keeps their width clear:
+   env() reports the area the OS left us, and the 138px fallback is the Windows 11
+   control cluster when the variable is unavailable. */
+body.platform-win #titlebar {
+  padding-right: calc(100vw - env(titlebar-area-width, calc(100vw - 138px)) + 6px);
+}
+
+/* The row's one baseline. It is its own element rather than an inset shadow
+   because the active tab has to be able to cover it: the tab is opaque paper
+   flush with the bottom of the row, so the line is cut where the tab opens into
+   the document. */
+#titlebar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--shell-line);
+}
+
+/* The panel's column is a column below the row, and only below it: the row keeps
+   its own surface across the full width. Carrying the seam up through the row
+   (2.4.0) put a vertical line in the chrome at the row's right end, which read as
+   a stray mark rather than as an edge — there is no surface change up there to
+   justify a line (2026-09-15). */
+
+#save-status {
+  /* A flex member of the row, left of the button cluster. The free space in the
+     row collects HERE, between the plus and the save status, so the strip stays
+     next to its tabs and the right-hand group stays pinned to the right edge. */
+  margin-left: auto;
+  flex: none;
+  margin-right: 2px;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  pointer-events: none;
+}
+
+/* Only unsaved edits are announced; a successful save fades out silently. */
+#save-status.pending {
+  opacity: 0.55;
+}
+
+/* Tabs are created from the File menu / ⌘T, from the file list (⌘-click or the
+   right-click menu), and from the plus at the end of the strip, which appears
+   together with the strip. There is deliberately no plus in the title bar: it
+   would disappear the moment the strip shows up. */
+#tab-bar {
+  /* The strip is the titlebar's first flex child, not a floating sibling. It
+     hugs its tabs and shrinks when they run out of room: min-width: 0 lets it,
+     and overflow scrolls the tabs. It paints nothing of its own: the surface and
+     the baseline belong to the titlebar. It may not run past the panel's column
+     either — the tabs belong to the document's side of the row. */
+  flex: 0 1 auto;
+  min-width: 0;
+  /* …and it stops one plus-button short of the column, so that button lands just
+     inside the document's side of the row rather than on the panel's paper. */
+  max-width: calc(100% - var(--panel-column, 0px) - 36px);
+  align-self: stretch;
+  display: flex;
+  /* Tabs fill the row instead of floating inside it: no gap and no separator
+     lines, because the paper against the chrome is the whole reading. */
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  background: transparent;
+  -webkit-app-region: drag;
+}
+
+#tab-bar[hidden] {
+  display: none;
+}
+
+#tab-bar::-webkit-scrollbar {
+  display: none;
+}
+
+/* The plus carries no styling of its own: it is one of the row's icon controls
+   (#titlebar > button), so it is the same size, the same grey, and reports
+   nothing by weight. It sits right after the strip, and `.tab-new-btn` survives
+   as the hook the renderer finds it by. */
+
+.tab-entry {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  /* A tab hugs its filename, inside a floor and a ceiling that are both read
+     off the row's height: twice it (80px) so a short name never collapses to a
+     bare square, four times it (160px) so a long one stops growing. In between
+     the name decides, and when the row runs out the tabs compress to the floor
+     before the strip starts scrolling. */
+  min-width: 80px;
+  max-width: 160px;
+  /* Full row height: the active tab is a column of paper running from the
+     window's top edge down into the document, not a chip inside the row. */
+  height: 100%;
+  /* Symmetric, and roomier than the row's own breathing space: the name sits in
+     a 40px tall tab, so 10px either side read as cramped next to ~14px above and
+     below it. Air left and right, same as air above and below. */
+  padding: 0 16px;
+  border: 1px solid transparent;
+  /* No top edge and no bottom edge. The bottom stays open so the active tab
+     runs into the document; the top would sit on the window's own top edge,
+     where a hairline reads as a seam in the sky. */
+  border-top: none;
+  border-bottom: none;
+  /* Every tab marks its LEFT edge, full height: the line runs from the window's
+     top edge down to the row's baseline, so the tabs read as one connected row
+     of columns rather than as names floating over chrome. The first tab is
+     marked too, which is where the strip begins. */
+  border-left-color: var(--shell-line);
+  /* Square on purpose: a full-height tab meets the window's top edge, where a
+     radius reads as a notch. */
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: default;
+  -webkit-app-region: no-drag;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab-entry:hover {
+  background: var(--chrome-bg-hover);
+  color: var(--text-secondary, var(--text-color));
+}
+
+/* The active tab wears the paper colour with no bottom edge, so it opens into the
+   document. No shadow, and no accent line either: the paper set
+   against the chrome is the active state, and a 1px theme line on top of it made the
+   strip shout for attention. */
+.tab-entry.active {
+  background: var(--bg-color);
+  /* Its edges carry the same hairline as every other boundary: the active state
+     is the paper column itself, not a heavier line around it. */
+  border-color: var(--shell-line);
+  color: var(--text-color);
+}
+
+/* The active tab already lays a full-height edge against its right neighbour,
+   so the neighbour gives up its own mark there instead of doubling up. */
+.tab-entry.active + .tab-entry {
+  border-left-color: transparent;
+}
+
+.tab-entry-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* The label's box has to be TALLER than its glyphs, not exactly as tall. With
+     line-height 1 the ink filled the box edge to edge, and a CJK font with a
+     roomier em box (Windows) had the bottom of its strokes cut off by the
+     overflow clip below. 20px inside the 40px tab leaves 2px of air each side on
+     every platform's font (2026-09-15). */
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-entry.dirty::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+/* The close button floats over the tab: no width, no padding, nothing reserved
+   at rest, so a resting tab hugs its filename exactly. When it shows it masks the
+   text behind it with a fully opaque surface colour, and it is never translucent:
+   a faded button lets the tab name read straight through it. Quietness comes from
+   the muted glyph colour, not from an opacity on the button. */
+.tab-entry-close {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  transform: translateY(-50%);
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: var(--chrome-bg-hover);
+  color: inherit;
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  transition: opacity 0s, background 0.12s, color 0.12s;
+}
+
+.tab-entry.active .tab-entry-close {
+  background: var(--bg-color);
+}
+
+.tab-entry:hover .tab-entry-close,
+.tab-entry-close:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  /* A resting tab's surface fades in over 0.15s: wait for it, so the opaque mask
+     never lands on a half-transparent tab. */
+  transition: opacity 0s 0.15s, background 0.12s, color 0.12s;
+}
+
+/* The active tab's paper surface never fades, so its close button pops at once. */
+.tab-entry.active:hover .tab-entry-close,
+.tab-entry.active .tab-entry-close:focus-visible {
+  transition: opacity 0s, background 0.12s, color 0.12s;
+}
+
+.tab-entry-close:hover {
+  background: color-mix(in srgb, var(--text-color) 14%, var(--chrome-bg-hover));
+  color: var(--text-color);
+}
+
+.tab-entry.active .tab-entry-close:hover {
+  background: color-mix(in srgb, var(--text-color) 12%, var(--bg-color));
+}
+
+/* One floating label, used by the strip and by the file panel. */
+#hover-tip {
+  position: fixed;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-color) 86%, transparent);
+  color: var(--bg-color);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 60;
+}
+
+#hover-tip[hidden] {
+  display: none;
+}
+
+/* The three titlebar buttons share ONE box rule: same size, same radius, same
+   colour. They also share one weight, always: no hover step, no disabled step,
+   no on-state. A control that lights up — or dims — pulls the eye row-ward, and
+   both states it could report are plain to see by themselves (2026-09-15).
+   The .active class survives as the state marker; nothing styles it. */
+#titlebar > button {
+  width: 28px;
+  height: 28px;
+  margin-left: 8px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--row-icon-color);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}
+
+/* `display: flex` above outranks the UA rule for [hidden], so the attribute has
+   to be honoured explicitly: the menu button only exists on Windows, and an
+   invisible-looking 28px box would still sit in the row and push the others. */
+#titlebar > button[hidden] {
+  display: none;
+}
+
+/* The Windows menu button is the row's first child, so it gets its own air
+   instead of the 8px gap the right-hand cluster uses: the row's 6px gutter is
+   its left margin, and 6px on the right puts the glyph exactly halfway between
+   the window's edge and the line the document's strip starts on. Inheriting the
+   shared margin-left left it jammed against the first tab (2026-09-15). */
+#titlebar > #app-menu-btn {
+  margin-left: 0;
+  margin-right: 6px;
+}
+
+/* One focus ring for the whole shell, drawn in the theme's own ink. The platform
+   default follows the SYSTEM accent colour, so a keyboard focus inside a
+   monochrome row came out orange on macOS (2026-09-15) and would come out a
+   different colour on every machine, in neither case the theme's. Colour accents
+   belong to the document; the shell reports focus with weight and shape. */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text-color) 40%, transparent);
+  outline-offset: 1px;
+}
+
+/* The close button sits INSIDE its tab, so its ring has to grow inward: an
+   outward one would paint over the neighbouring tab's edge. */
+.tab-entry-close:focus-visible {
+  outline-offset: -2px;
+}
+
+/* The tooltip reveal is its own rule, apart from anything that changes colour:
+   58f66f4 fused the hover selectors into the tip's block, which teleported and
+   hid the buttons on hover (the "flicker / unclickable" bug). */
+.toolbar-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  color: var(--text-color);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-3px);
+  /* No opacity transition: a hover label is either fully visible or not there
+     at all. A fade reads as a transparent label over the document text. */
+  transition: transform 0.15s;
+}
+
+#titlebar > button:hover .toolbar-tip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+#word-count {
+  cursor: default;
+}
+
+#editor {
+  position: relative; /* anchor for the absolutely-positioned code copy button */
+  height: calc(100vh - 40px - var(--tab-bar-height, 0px));
+  overflow-y: auto;
+  /* 40px of air above the first line, the same as below it and at the sides, and
+     the same as the source view's: a document that starts flush against the
+     chrome reads as if it were scrolled, and switching modes must not make the
+     text jump (2026-09-15). */
+  padding: calc(40px + var(--editor-top-gap, 0px)) 40px 40px;
+}
+
+#source-editor {
+  display: none;
+  height: calc(100vh - 40px - var(--tab-bar-height, 0px));
+  width: 100%;
+  /* Center a column matching the visual editor (780px) so switching modes
+     keeps the text in the same place (#48). Falls back to 40px on narrow windows. */
+  padding: calc(40px + var(--editor-top-gap, 0px)) max(40px, calc((100% - 780px) / 2));
+  box-sizing: border-box;
+  border: none;
+  outline: none;
+  resize: none;
+  background: var(--bg-color);
+  color: var(--text-color);
+  font-family: 'SF Mono', 'Fira Code', Menlo, Monaco, monospace;
+  font-size: 14px;
+  line-height: 1.7;
+  tab-size: 2;
+}
+
+#source-editor.visible {
+  display: block;
+}
+
+/* Same-directory file panel */
+#file-panel {
+  position: fixed;
+  top: calc(40px + var(--tab-bar-height, 0px));
+  right: 0;
+  bottom: 0;
+  width: var(--file-panel-width, 220px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-color);
+  /* The same hairline as the row's dividers and its baseline: every seam in the
+     shell is one weight, and --border-color stays for things INSIDE a surface
+     (cards, modals, tables), where a quieter line would read as an accident. */
+  border-left: 1px solid var(--shell-line);
+  overflow-y: auto;
+  padding: 10px 8px;
+}
+
+#file-panel[hidden] {
+  display: none;
+}
+
+/* With the panel shown, the strip starts on the panel's edge line: the first tab
+   sits exactly on the line the panel draws down the window, so the panel's right
+   edge and the tab's left edge are one vertical. The band itself still spans the
+   window — the panel starts below it, and nothing is cut. */
+/* Edge hot zone for resizing the panel; deliberately handle-free — the divider
+   itself is the whole affordance (design.md). The hit area is 7px wide and
+   centred on the border's own column (the panel is border-box, so its 1px edge
+   sits in the last pixel), which puts the feedback exactly ON the line instead of
+   next to it. The tint is neutral: an accent colour belongs to the document, and
+   this is shell furniture. */
+#panel-resizer {
+  position: fixed;
+  top: calc(40px + var(--tab-bar-height, 0px));
+  bottom: 0;
+  right: calc(var(--file-panel-width, 220px) - 4px);
+  width: 7px;
+  cursor: col-resize;
+  z-index: 6;
+  background: transparent;
+}
+
+/* 3px in: the border's column inside a 7px hit area. */
+#panel-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+body:not(.show-file-panel) #panel-resizer {
+  display: none;
+}
+
+#panel-resizer:hover::after,
+#panel-resizer.dragging::after {
+  background: color-mix(in srgb, var(--text-color) 24%, transparent);
+}
+
+body.panel-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.file-panel-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  margin: 0 0 8px;
+  padding: 2px;
+  /* One rectangle, not two: the tray carries a surface and nothing else, so the
+     active chip can wear the tabs' exact recipe — paper plus the same 1px
+     hairline — and the sidebar and the strip say "chosen" the same way. */
+  border: none;
+  /* Concentric with the chip inside it: outer radius = inner 4px + the 2px
+     inset, so the two outlines stay the same distance apart all the way round
+     the corner. 6px is also the radius the title-bar buttons already use. */
+  border-radius: 6px;
+  /* The tray is the theme's raised chrome surface, not a hardcoded grey: a
+     hardcoded tint sits at the same luminance as the paper chip in dark themes
+     and the active state dissolves (2026-09-15). With --chrome-bg the chip
+     (paper) reads as pressed-in on dark and lifted on light. */
+  background: var(--chrome-bg);
+}
+
+.file-panel-tabs button {
+  /* 26px inside a 2px tray: the switch's whole box is 30px, the height of a
+     tab, and the chip inside sits a step below the tab so the control does not
+     outweigh the document's own chip. */
+  min-height: 26px;
+  /* Transparent, not absent: the active chip adds the hairline, and a border
+     that appears only when chosen would shift the label by a pixel. */
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.file-panel-tabs button:hover {
+  color: var(--text-color);
+}
+
+.file-panel-tabs button.active {
+  background: var(--bg-color);
+  color: var(--text-color);
+  /* Deliberately no shadow: a raised chip reads as hardware in an otherwise
+     flat shell (2026-09-15). The tray/chip contrast alone carries the state. */
+}
+
+#file-list,
+#outline-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+#file-list button,
+#outline-list button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color);
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Chevron slot: reserved for files too, so names line up along one column at
+   every depth. Expanded levels point down. */
+.file-entry-chevron {
+  display: inline-flex;
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: transform 120ms ease;
+}
+
+.file-entry-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.file-entry-chevron svg {
+  display: block;
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.file-entry-icon {
+  display: inline-flex;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.file-entry-icon svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.file-entry-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#outline-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+#file-list[hidden],
+#outline-list[hidden] {
+  display: none;
+}
+
+#outline-list button {
+  line-height: 1.4;
+}
+
+#outline-list button.empty {
+  color: var(--text-muted);
+  cursor: default;
+  font-style: italic;
+}
+
+#outline-list button.empty:hover {
+  background: transparent;
+}
+
+/* Names are shortened with an ellipsis and spelled out in the hover label;
+   they are never scrolled, which covers the row it belongs to. */
+
+#file-list button:hover,
+#outline-list button:hover {
+  background: color-mix(in srgb, var(--text-color) 14%, transparent);
+}
+
+#file-list .file-empty {
+  padding: 4px 8px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+/* Active entry in both lists: a NEUTRAL raised surface, not an accent colour.
+   The reading position is location, not importance, so it gets the same quiet
+   lifted chip in every theme (--chrome-bg-hover derives from the theme, stays
+   visible on dark and light); colour accents belong to the document, not the
+   shell. The old hardcoded orange (#F1752D) ignored themes entirely. */
+#file-list button.active,
+#outline-list button.active {
+  background: var(--chrome-bg-hover);
+  color: var(--text-color);
+}
+
+/* Outline-jump feedback: the landing heading flashes once and fades (#64). */
+@keyframes heading-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--link-color) 28%, transparent);
+  }
+  70% {
+    background-color: color-mix(in srgb, var(--link-color) 14%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.heading-flash {
+  animation: heading-flash 1.6s ease-out;
+  border-radius: 4px;
+}
+
+#file-list button.directory {
+  color: var(--text-color);
+  font-weight: 500;
+}
+
+/* The parent row is a row like the others: same radius, same hover, same text
+   colour. It used to be squared off with a rule under it, which broke both the
+   hover highlight and the shell's line rule. */
+#file-list button.parent {
+  margin-bottom: 4px;
+}
+
+body.show-file-panel #editor,
+body.show-file-panel #source-editor {
+  margin-right: var(--file-panel-width, 220px);
+}
+
+/* The source editor has an explicit width, so account for the panel margin
+   instead of extending past the viewport when both are visible. */
+body.show-file-panel #source-editor {
+  width: calc(100% - var(--file-panel-width, 220px));
+}
+
+#editor.hidden {
+  display: none;
+}
+
+/* Milkdown's wrapper holds the editable. It has to reach the bottom of the visible
+   area for two reasons: the editable above it must cover the empty space (clicking
+   under the last line has to place the caret), and a short document must not leave
+   a scrollable sliver behind. min-height: 100% resolves against the editor's own
+   height, so no viewport arithmetic to go stale. */
+#editor > .milkdown {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+#editor .ProseMirror {
+  outline: none;
+  max-width: 780px;
+  margin: 0 auto;
+  /* Fills the wrapper, grows with the text. */
+  flex: 1 0 auto;
+  width: 100%;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--text-color);
+}
+
+#editor .ProseMirror > * + * {
+  margin-top: 0.75em;
+}
+
+/* Typography */
+#editor .ProseMirror h1 {
+  font-size: 2em;
+  font-weight: 700;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.25;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-color);
+}
+
+#editor .ProseMirror h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--border-color);
+}
+
+#editor .ProseMirror h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+#editor .ProseMirror h4,
+#editor .ProseMirror h5,
+#editor .ProseMirror h6 {
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+#editor .ProseMirror p {
+  margin: 0.5em 0;
+}
+
+#editor .ProseMirror a {
+  color: var(--link-color);
+  text-decoration: none;
+}
+
+#editor .ProseMirror a:hover {
+  text-decoration: underline;
+}
+
+#editor .ProseMirror strong {
+  font-weight: 600;
+}
+
+/* Code */
+#editor .ProseMirror code {
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.875em;
+  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+}
+
+#editor .ProseMirror pre {
+  position: relative;
+  background: var(--code-block-bg);
+  color: var(--code-block-text, var(--text-color));
+  padding: 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+#editor .ProseMirror pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875em;
+  line-height: 1.6;
+}
+
+#editor .ProseMirror .mermaid-diagram {
+  overflow-x: auto;
+  padding: 12px 8px;
+  text-align: center;
+  background: var(--code-block-bg);
+  border-radius: 6px;
+}
+
+#editor .ProseMirror .mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+#editor .ProseMirror .mermaid-error {
+  padding: 8px 12px;
+  border: 1px solid var(--blockquote-border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 0.8em;
+  background: var(--blockquote-bg);
+}
+
+/* Copy buttons live OUTSIDE the ProseMirror DOM (overlay widgets in the
+   editor root), so they are styled from the root, never inside .ProseMirror. */
+#editor > .code-copy-btn {
+  position: absolute;
+  z-index: 10;
+  padding: 3px 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-color);
+  color: var(--text-secondary, var(--text-muted));
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  opacity: 0;
+  transform: translate(-100%, 0);
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+#editor > .code-copy-btn.hovering,
+#editor > .code-copy-btn:focus-visible,
+#editor > .code-copy-btn.copied {
+  opacity: 1;
+}
+
+#editor > .code-copy-btn:hover,
+#editor > .code-copy-btn.copied {
+  background: color-mix(in srgb, var(--text-color) 14%, transparent);
+  color: var(--text-color);
+}
+
+#editor .ProseMirror .milkdown-html-inline img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+/* Blockquote */
+#editor .ProseMirror blockquote {
+  border-left: 4px solid var(--blockquote-border);
+  padding-left: 16px;
+  margin: 1em 0;
+  color: var(--text-secondary, var(--text-muted));
+}
+
+/* Lists */
+#editor .ProseMirror ul,
+#editor .ProseMirror ol {
+  padding-left: 24px;
+  margin: 0.5em 0;
+}
+
+#editor .ProseMirror li {
+  margin: 0.25em 0;
+}
+
+#editor .ProseMirror li > p {
+  margin: 0;
+}
+
+/* Task lists (GFM checkboxes) */
+#editor .ProseMirror li[data-item-type="task"] {
+  position: relative;
+  list-style: none;
+  padding-left: 1.6em;
+}
+
+#editor .ProseMirror li[data-item-type="task"]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.3em;
+  width: 0.95em;
+  height: 0.95em;
+  border: 1.5px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-color);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+#editor .ProseMirror li[data-item-type="task"]:hover::before {
+  border-color: var(--text-muted);
+}
+
+#editor .ProseMirror li[data-item-type="task"][data-checked="true"]::before {
+  background: var(--link-color) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8l3 3 6-6.5' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 80% no-repeat;
+  border-color: var(--link-color);
+}
+
+#editor .ProseMirror li[data-item-type="task"][data-checked="true"] > p {
+  color: var(--text-secondary, var(--text-muted));
+  text-decoration: line-through;
+}
+
+/* Highlight (==text==) */
+#editor .ProseMirror mark {
+  background: var(--highlight-bg, #fff3bf);
+  color: inherit;
+  padding: 0 0.15em;
+  border-radius: 3px;
+}
+
+/* Table */
+#editor .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+#editor .ProseMirror th,
+#editor .ProseMirror td {
+  border: 1px solid var(--border-color);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+#editor .ProseMirror th {
+  background: var(--table-header-bg);
+  font-weight: 600;
+}
+
+/* HR */
+/* A rule in the document is the same hairline as a heading's underline. It used
+   to be 2px, which is the one line in the document that was visibly heavier than
+   its neighbours (2026-09-15). */
+#editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 2em 0;
+}
+
+/* Image */
+#editor .ProseMirror img {
+  max-width: 100%;
+  border-radius: 4px;
+}
+
+#editor .ProseMirror ::selection {
+  background: var(--selection-bg);
+}
+
+/* ======= THEMES ======= */
+
+:root, body.theme-light {
+  --bg-color: #ffffff;
+  --text-color: #24292f;
+  --text-secondary: #656d76;
+  --text-muted: #656d76;
+  --border-color: #dce1e6;
+  --link-color: #0969da;
+  --code-bg: rgba(175, 184, 193, 0.2);
+  --code-block-bg: #f6f8fa;
+  --blockquote-border: #d0d7de;
+  --table-header-bg: #f6f8fa;
+  --selection-bg: rgba(9, 105, 218, 0.15);
+  --highlight-bg: #fff3bf;
+}
+
+body.theme-dark {
+  --bg-color: #0d1117;
+  --text-color: #e6edf3;
+  --text-secondary: #aab3bd;
+  --text-muted: #8b949e;
+  --border-color: #272d34;
+  --link-color: #58a6ff;
+  --code-bg: rgba(110, 118, 129, 0.3);
+  --code-block-bg: #161b22;
+  --blockquote-border: #30363d;
+  --table-header-bg: #161b22;
+  --selection-bg: rgba(88, 166, 255, 0.2);
+  --highlight-bg: rgba(210, 153, 34, 0.35);
+}
+
+body.theme-elegant {
+  --bg-color: #f0edea;
+  --text-color: #2c2c2c;
+  --text-secondary: #6c6c6c;
+  --text-muted: #777;
+  --border-color: #dedad5;
+  --link-color: #bc4424;
+  --code-bg: #e8e4df;
+  --code-block-bg: #2c2c2c;
+  --code-block-text: #e0dcd7;
+  --blockquote-border: #c44b2b;
+  --blockquote-bg: #eae6e1;
+  --table-header-bg: #eae6e1;
+  --table-border: #d8d3ce;
+  --selection-bg: rgba(196, 75, 43, 0.2);
+  --highlight-bg: #f0d9a8;
+}
+
+body.theme-elegant #editor .ProseMirror {
+  font-family: 'LXGW WenKai', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', Georgia, serif;
+  line-height: 1.9;
+}
+
+body.theme-elegant #editor .ProseMirror strong {
+  color: #c44b2b;
+}
+
+body.theme-elegant #editor .ProseMirror code {
+  color: #c44b2b;
+}
+
+body.theme-elegant #editor .ProseMirror pre {
+  color: var(--code-block-text);
+}
+
+body.theme-elegant #editor .ProseMirror pre code {
+  color: inherit;
+}
+
+body.theme-elegant #editor .ProseMirror blockquote {
+  background: var(--blockquote-bg);
+  padding: 15px 20px 15px 25px;
+}
+
+body.theme-elegant #editor .ProseMirror table th {
+  border-bottom: 2px solid #c44b2b;
+}
+
+body.theme-elegant #editor .ProseMirror table td {
+  border-left: none;
+  border-right: none;
+}
+
+/* Scrollbar: macOS keeps its native overlay bars, which are drawn while you
+   scroll, take no layout space and are absent the rest of the time. Only Windows
+   and Linux get the thin custom bar below. Chromium never repaints a custom
+   scrollbar on hover, so a "reveal the thumb on :hover" rule paints nothing
+   (verified on the tab bar and the editor): the honest options are the system
+   overlay bars or an always-on bar. */
+body.platform-non-mac *::-webkit-scrollbar,
+body.web-playground *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+body.platform-non-mac *::-webkit-scrollbar-track,
+body.web-playground *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body.platform-non-mac *::-webkit-scrollbar-thumb,
+body.web-playground *::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+body.platform-non-mac *::-webkit-scrollbar-corner,
+body.web-playground *::-webkit-scrollbar-corner {
+  background: var(--bg-color);
+}
+
+/* ======= SEARCH PANEL ======= */
+
+.search-panel {
+  position: fixed;
+  top: 10px;
+  right: 56px;
+  z-index: 1000;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  grid-template-areas:
+    "query count prev next close"
+    "replace replace replace replace replace";
+  align-items: center;
+  column-gap: 4px;
+  row-gap: 6px;
+  width: 360px;
+  padding: 6px 8px;
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  -webkit-app-region: no-drag;
+}
+
+.search-input {
+  width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  font-size: 13px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: var(--link-color);
+}
+
+.search-count {
+  min-width: 32px;
+  color: var(--text-secondary, var(--text-muted));
+  font-size: 12px;
+  text-align: center;
+}
+
+.search-panel > .search-input { grid-area: query; min-width: 0; width: auto; }
+.search-panel > .search-count { grid-area: count; min-width: 32px; }
+.search-panel > .search-btn:nth-of-type(1) { grid-area: prev; }
+.search-panel > .search-btn:nth-of-type(2) { grid-area: next; }
+.search-panel > .search-btn.search-close { grid-area: close; }
+
+.search-replace-row {
+  grid-area: replace;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 4px;
+  padding: 0;
+}
+
+.search-replace-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-action {
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 7px;
+  background: none;
+  color: var(--text-secondary, var(--text-muted));
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search-action:hover {
+  background: var(--code-bg);
+  color: var(--text-color);
+}
+
+.search-btn {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: none;
+  color: var(--text-color);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search-btn:hover {
+  background: var(--code-bg);
+}
+
+.search-close {
+  font-size: 16px;
+}
+
+.search-match {
+  background: var(--search-match-bg);
+  border-radius: 2px;
+}
+
+.search-match-current {
+  background: var(--search-match-current-bg);
+  border-radius: 2px;
+}
+
+/* ======= MATH ======= */
+
+#editor .ProseMirror .math-inline {
+  padding: 0 2px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#editor .ProseMirror .math-inline:hover {
+  background: var(--code-bg);
+}
+
+#editor .ProseMirror .math-block {
+  margin: 1em 0;
+  padding: 8px;
+  border-radius: 6px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#editor .ProseMirror .math-block:hover {
+  background: var(--code-bg);
+}
+
+.math-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+}
+
+.math-modal {
+  display: flex;
+  width: 480px;
+  max-width: 90vw;
+  padding: 20px;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  -webkit-app-region: no-drag;
+}
+
+.math-modal h3 {
+  margin: 0;
+  color: var(--text-color);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.math-modal-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+}
+
+.math-modal-input:focus {
+  border-color: var(--link-color);
+}
+
+.math-modal-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary, var(--text-muted));
+  font-size: 13px;
+}
+
+.math-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.math-modal-btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.math-modal-btn.cancel {
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-color);
+}
+
+.math-modal-btn.cancel:hover {
+  background: var(--code-bg);
+}
+
+.math-modal-btn.save {
+  background: var(--link-color);
+  color: #fff;
+}
+
+/* --- Footnote hover preview (#25): definition in a floating card --- */
+.footnote-preview {
+  position: fixed;
+  z-index: 40;
+  max-width: 420px;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 10px 14px;
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(62, 53, 42, .14);
+  color: var(--text-color);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.footnote-preview[hidden] {
+  display: none;
+}
+
+.math-modal-btn.save:hover {
+  opacity: 0.9;
+}
+
+/* Update banner (weak, non-blocking) */
+#update-banner {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 14px;
+  border-radius: 8px;
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  color: var(--text-color);
+  font-size: 13px;
+  z-index: 100;
+}
+
+#update-banner[hidden] {
+  display: none;
+}
+
+#update-banner-text {
+  white-space: nowrap;
+}
+
+#update-banner-action {
+  border: none;
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--link-color);
+  color: #fff;
+}
+
+#update-banner-action:hover {
+  opacity: 0.9;
+}
+
+#update-banner-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+#update-banner-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+#update-banner-dismiss:hover {
+  background: color-mix(in srgb, var(--text-color) 14%, transparent);
+  color: var(--text-color);
+}
+
+/* ===== Editor font preferences (#7752855) =====
+   User preference > theme > built-in defaults. Only the editor prose and the
+   source editor are overridden; code blocks keep the theme's code font. */
+body.has-custom-font #editor .ProseMirror {
+  font-family: var(--editor-font) !important;
+  font-size: var(--editor-font-size, 16px) !important;
+}
+
+body.has-custom-font #source-editor {
+  font-family: var(--editor-font) !important;
+  font-size: var(--editor-font-size, 14px) !important;
+}
+
+/* Font settings modal (reuses math-modal shell) */
+.font-modal {
+  width: 440px;
+  gap: 14px;
+}
+
+.font-modal h3 {
+  font-size: 15px;
+}
+
+.font-modal-row {
+  display: flex;
+  gap: 10px;
+}
+
+.font-modal-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.font-modal-col-size {
+  flex: none;
+  width: 84px;
+}
+
+.font-modal-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.font-modal .math-modal-input {
+  font-family: inherit;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.font-modal .font-modal-size {
+  width: 100%;
+}
+
+.font-modal-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 10001;
+  max-height: 208px;
+  overflow-y: auto;
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+}
+
+.font-modal-list-item {
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--text-color);
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.font-modal-list-item:hover,
+.font-modal-list-item.active {
+  background: var(--code-bg);
+}
+
+.font-modal-preview {
+  padding: 12px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--code-bg);
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.font-modal-footer {
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.font-modal-footer-group {
+  display: flex;
+  gap: 10px;
+}
+
+/* Print only document content; app overlays can appear at any time. */
+@media print {
+  body > :not(#editor),
+  #editor > .code-copy-btn,
+  #editor > .footnote-preview {
+    display: none !important;
+  }
+}

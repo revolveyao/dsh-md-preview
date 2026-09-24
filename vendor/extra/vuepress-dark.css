@@ -1,0 +1,103 @@
+/* ===== VuePress docs reading theme — dark =====
+   Written for this plugin — NOT vendored from upstream. The dark half of
+   vendor/extra/vuepress.css: same typography rules, the VuePress default theme's
+   dark surface (#25272a background, #adbac7 slate text, #3a3f44 hairlines) and the
+   brand green lifted to its dark-reading weight (#4abf8a).
+
+   Code blocks keep the same #282c34 slab as the light half — VuePress docs print
+   code on a dark slab either way — so src/client/highlight.js maps both ids to
+   Shiki's one-dark-pro and no extra palette is ever fetched.
+
+   Same dialect as the vendored ColaMD themes; scripts/prepare-colamd.mjs scopes
+   every rule to `.mdp-md.theme-vuepress-dark` and fails the build if one escapes. */
+
+:root {
+  color-scheme: dark;
+  --bg-color: #25272a;
+  --text-color: #adbac7;
+  --text-secondary: #8b98a5;
+  --text-muted: #768390;
+  --border-color: #3a3f44;
+  --link-color: #4abf8a;
+  --code-bg: rgba(255, 255, 255, 0.07);
+  --code-block-bg: #282c34;
+  --code-block-text: #abb2bf;
+  --blockquote-border: #3a3f44;
+  --table-header-bg: transparent;
+  --table-border: #3a3f44;
+  --selection-bg: rgba(74, 191, 138, 0.28);
+  --highlight-bg: rgba(255, 229, 100, 0.25);
+}
+
+#editor .ProseMirror {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', 'Noto Sans SC', sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+#editor .ProseMirror h1,
+#editor .ProseMirror h2,
+#editor .ProseMirror h3,
+#editor .ProseMirror h4 {
+  font-weight: 600;
+}
+
+#editor .ProseMirror h2 {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.3rem;
+}
+
+#editor .ProseMirror a {
+  color: var(--link-color);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+#editor .ProseMirror a:hover {
+  color: #6cd39b;
+  text-decoration: underline;
+}
+
+#editor .ProseMirror pre {
+  border-radius: 6px;
+  padding: 1.25rem 1.4rem;
+  line-height: 1.6;
+}
+
+#editor .ProseMirror code {
+  color: #6cd39b;
+  font-size: 0.875em;
+}
+
+#editor .ProseMirror pre code {
+  color: inherit;
+}
+
+#editor .ProseMirror blockquote {
+  color: var(--text-secondary);
+  border-left: 4px solid var(--border-color);
+  padding: 0.2rem 0 0.2rem 1rem;
+}
+
+#editor .ProseMirror hr {
+  border: 0;
+  border-top: 1px solid var(--border-color);
+}
+
+#editor .ProseMirror table {
+  border-collapse: collapse;
+}
+
+#editor .ProseMirror table th,
+#editor .ProseMirror table td {
+  border: 1px solid var(--table-border);
+  padding: 0.6em 1em;
+}
+
+#editor .ProseMirror table thead th {
+  background: transparent;
+}
+
+#editor .ProseMirror table tbody tr:nth-child(2n) {
+  background: rgba(255, 255, 255, 0.03);
+}

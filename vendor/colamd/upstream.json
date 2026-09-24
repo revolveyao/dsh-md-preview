@@ -1,0 +1,8 @@
+{
+  "repo": "https://github.com/marswaveai/ColaMD",
+  "commit": "2b0d2de1c4201b4f24768e7d9f862639ebaed482",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2026 marswave.ai",
+  "fetchedAt": "2026-09-19",
+  "files": ["src/renderer/themes/base.css", "src/renderer/themes/premium.css", "LICENSE", "themes/*.css"]
+}

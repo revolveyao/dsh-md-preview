@@ -1,0 +1,54 @@
+/* ===== Markdown theme template =====
+   Copy this file to vendor/extra/<id>.css, replace the colour values, add the
+   display name to THEME_LABELS in scripts/prepare-colamd.mjs (and to DARK_THEMES
+   if the palette is dark), then run npm run build. See docs/themes.md.
+
+   The build scopes every rule to .mdp-md.theme-<id>, so nothing here can leak
+   into the DSH shell, and it refuses to pass if a required variable is missing.
+   Only the twelve required variables below are needed to make a theme; the
+   element rules at the bottom are optional and are the place for typography. */
+
+:root {
+  /* --- required --- */
+  --bg-color: #ffffff;
+  --text-color: #2c3e50;
+  --text-secondary: #4e6e8e;
+  --text-muted: #6a8bad;
+  --border-color: #eaecef;
+  --link-color: #3eaf7c;
+  --code-bg: rgba(27, 31, 35, 0.05);
+  --code-block-bg: #282c34;
+  --blockquote-border: #dfe2e5;
+  --table-header-bg: #ffffff;
+  --selection-bg: rgba(62, 175, 124, 0.2);
+  --highlight-bg: #ffe564;
+
+  /* --- optional (see docs/themes.md for each one's caveat) --- */
+  --code-block-text: #abb2bf;
+  --blockquote-bg: transparent;
+  --table-border: #dfe2e5;
+
+  /* --- optional typography --- */
+  /* Leave these out to inherit the plugin default (body: 霞鹜文楷 LXGW WenKai,
+     code: Cascadia Code with Microsoft YaHei behind it). Set them to give this
+     theme its own faces. */
+  /* --content-font: 'LXGW WenKai', Georgia, serif; */
+  /* --code-font: 'Cascadia Code', 'Microsoft YaHei', monospace; */
+}
+
+/* Element tweaks in the same dialect as the vendored themes: the build rewrites
+   #editor .ProseMirror onto the container, so write rules as if for the editor. */
+#editor .ProseMirror a {
+  text-decoration: none;
+}
+
+#editor .ProseMirror h2 {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.3rem;
+}
+
+/* Required if the theme sets --table-border: no upstream rule reads it. */
+#editor .ProseMirror table th,
+#editor .ProseMirror table td {
+  border: 1px solid var(--table-border);
+}

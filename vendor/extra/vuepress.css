@@ -1,0 +1,105 @@
+/* ===== VuePress docs reading theme =====
+   Written for this plugin — NOT vendored from upstream. It reproduces the visual
+   language of the VuePress default theme's documentation pages: brand green
+   links (#3eaf7c), slate body text (#2c3e50), light hairline borders (#eaecef),
+   a system sans stack, section rules under h2, and the dark #282c34 code block
+   that VuePress docs are known for (paired with Shiki's one-dark-pro in
+   src/client/highlight.js, whose background is the same value).
+
+   Same dialect as the vendored ColaMD themes so the build treats it identically:
+   variables on :root, element tweaks on the editor DOM. scripts/prepare-colamd.mjs
+   scopes every rule to `.mdp-md.theme-vuepress`, so nothing here can reach the
+   DSH shell — and the build fails if a rule escapes. */
+
+:root {
+  --bg-color: #ffffff;
+  --text-color: #2c3e50;
+  --text-secondary: #4e6e8e;
+  --text-muted: #6a8bad;
+  --border-color: #eaecef;
+  --link-color: #3eaf7c;
+  --code-bg: rgba(27, 31, 35, 0.05);
+  --code-block-bg: #282c34;
+  --code-block-text: #abb2bf;
+  --blockquote-border: #dfe2e5;
+  --table-header-bg: #ffffff;
+  --table-border: #dfe2e5;
+  --selection-bg: rgba(62, 175, 124, 0.2);
+  --highlight-bg: #ffe564;
+}
+
+#editor .ProseMirror {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', 'Noto Sans SC', sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+#editor .ProseMirror h1,
+#editor .ProseMirror h2,
+#editor .ProseMirror h3,
+#editor .ProseMirror h4 {
+  font-weight: 600;
+}
+
+#editor .ProseMirror h2 {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.3rem;
+}
+
+#editor .ProseMirror a {
+  color: var(--link-color);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+#editor .ProseMirror a:hover {
+  color: #4abf8a;
+  text-decoration: underline;
+}
+
+/* Docs-style code block: dark slab, tight radius, room to breathe. */
+#editor .ProseMirror pre {
+  border-radius: 6px;
+  padding: 1.25rem 1.4rem;
+  line-height: 1.6;
+}
+
+#editor .ProseMirror code {
+  color: #476582;
+  font-size: 0.875em;
+}
+
+#editor .ProseMirror pre code {
+  color: inherit;
+}
+
+#editor .ProseMirror blockquote {
+  color: var(--text-secondary);
+  border-left: 4px solid var(--border-color);
+  padding: 0.2rem 0 0.2rem 1rem;
+}
+
+#editor .ProseMirror hr {
+  border: 0;
+  border-top: 1px solid var(--border-color);
+}
+
+/* The table shape VuePress docs use: hairline grid, unshaded header, striped
+   even rows. */
+#editor .ProseMirror table {
+  border-collapse: collapse;
+}
+
+#editor .ProseMirror table th,
+#editor .ProseMirror table td {
+  border: 1px solid var(--table-border);
+  padding: 0.6em 1em;
+}
+
+#editor .ProseMirror table thead th {
+  background: transparent;
+}
+
+#editor .ProseMirror table tbody tr:nth-child(2n) {
+  background: #f6f8fa;
+}
